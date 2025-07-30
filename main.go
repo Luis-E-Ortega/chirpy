@@ -21,12 +21,14 @@ func main() {
 	// Initialize instance of apiConfig struct
 	apiCfg := apiConfig{}
 
-	// Handle requests to /healthz with the readiness check
-	mux.HandleFunc("/healthz", handleHealthz)
+	// Handle requests to /healthz with the readiness check, only allowing GET requests (others return 405)
+	mux.HandleFunc("GET /healthz", handleHealthz)
 	// Serve static files from /app/ path
 	mux.Handle("/app/", http.StripPrefix("/app", apiCfg.middlewareMetricsInc(http.FileServer(http.Dir(".")))))
-	// Serve metrics from /metrics path
-	mux.HandleFunc("/metrics/", apiCfg.writeHits)
+	// Serve metrics from /metrics path, only allowing GET requests
+	mux.HandleFunc("GET /metrics/", apiCfg.writeHits)
+	// Serve reset from /reset path, only allowing POST requests
+	mux.HandleFunc("POST /reset", apiCfg.reset)
 
 	err := server.ListenAndServe()
 	if err != nil {
@@ -44,12 +46,18 @@ func handleHealthz(w http.ResponseWriter, req *http.Request) {
 // Increments and keeps track of count per request to server
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cfg.fileserverHits.Add(1)
+		cfg.fileserverHits.Add(1) // Need to use this syntax to safely add to our atomic int
 		next.ServeHTTP(w, r)
 	})
 }
 
+// Writes the hits on the site to the response
 func (cfg *apiConfig) writeHits(w http.ResponseWriter, req *http.Request) {
-	str := fmt.Sprintf("Hits %v", cfg.fileserverHits.Load())
+	str := fmt.Sprintf("Hits: %v", cfg.fileserverHits.Load())
 	w.Write([]byte(str))
+}
+
+// Resets hits count to 0
+func (cfg *apiConfig) reset(w http.ResponseWriter, req *http.Request) {
+	cfg.fileserverHits.Swap(0)
 }
