@@ -22,13 +22,13 @@ func main() {
 	apiCfg := apiConfig{}
 
 	// Handle requests to /healthz with the readiness check, only allowing GET requests (others return 405)
-	mux.HandleFunc("GET /healthz", handleHealthz)
+	mux.HandleFunc("GET /api/healthz", handleHealthz)
 	// Serve static files from /app/ path
 	mux.Handle("/app/", http.StripPrefix("/app", apiCfg.middlewareMetricsInc(http.FileServer(http.Dir(".")))))
 	// Serve metrics from /metrics path, only allowing GET requests
-	mux.HandleFunc("GET /metrics/", apiCfg.writeHits)
+	mux.HandleFunc("GET /admin/metrics/", apiCfg.writeHits)
 	// Serve reset from /reset path, only allowing POST requests
-	mux.HandleFunc("POST /reset", apiCfg.reset)
+	mux.HandleFunc("POST /admin/reset", apiCfg.reset)
 
 	err := server.ListenAndServe()
 	if err != nil {
@@ -53,7 +53,14 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 
 // Writes the hits on the site to the response
 func (cfg *apiConfig) writeHits(w http.ResponseWriter, req *http.Request) {
-	str := fmt.Sprintf("Hits: %v", cfg.fileserverHits.Load())
+	w.Header().Set("Content-Type", "text/html")
+	str := fmt.Sprintf(`
+	<html>
+	<body>
+	<h1>Welcome, Chirpy Admin</h1>
+	<p>Chirpy has been visited %d times!</p>
+	</body>
+	</html>`, cfg.fileserverHits.Load())
 	w.Write([]byte(str))
 }
 
