@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sync/atomic"
 )
@@ -27,8 +29,13 @@ func main() {
 	mux.Handle("/app/", http.StripPrefix("/app", apiCfg.middlewareMetricsInc(http.FileServer(http.Dir(".")))))
 	// Serve metrics from /metrics path, only allowing GET requests
 	mux.HandleFunc("GET /admin/metrics/", apiCfg.writeHits)
-	// Serve reset from /reset path, only allowing POST requests
+	// Handle reset from /reset path, only allowing POST requests
 	mux.HandleFunc("POST /admin/reset", apiCfg.reset)
+	// Handle chirp validation
+	mux.HandleFunc("POST /api/validate_chirp", apiCfg.validate)
+
+	// Starts server "listening" to accept and handle requests
+	fmt.Println("Server starting on port 8080...")
 
 	err := server.ListenAndServe()
 	if err != nil {
@@ -37,7 +44,7 @@ func main() {
 	}
 }
 
-func handleHealthz(w http.ResponseWriter, req *http.Request) {
+func handleHealthz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(200)
 	w.Write([]byte("OK"))
@@ -52,7 +59,7 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 }
 
 // Writes the hits on the site to the response
-func (cfg *apiConfig) writeHits(w http.ResponseWriter, req *http.Request) {
+func (cfg *apiConfig) writeHits(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	str := fmt.Sprintf(`
 	<html>
@@ -65,6 +72,60 @@ func (cfg *apiConfig) writeHits(w http.ResponseWriter, req *http.Request) {
 }
 
 // Resets hits count to 0
-func (cfg *apiConfig) reset(w http.ResponseWriter, req *http.Request) {
+func (cfg *apiConfig) reset(w http.ResponseWriter, r *http.Request) {
 	cfg.fileserverHits.Swap(0)
+}
+
+func (cfg *apiConfig) validate(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Body string `json:"body"`
+	}
+
+	type returnVals struct {
+		Error string `json:"error"`
+		Valid bool   `json:"valid"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		log.Printf("Error decoding parameters : %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	if len(params.Body) > 140 {
+		// Creating a struct with only error field to return
+		errorResp := struct {
+			Error string `json:"error"`
+		}{
+			Error: "Chirp is too long",
+		}
+		w.WriteHeader(400)
+		dat, err := json.Marshal(errorResp)
+		if err != nil {
+			log.Printf("Error marshalling JSON: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(dat)
+	} else {
+		// Creating a struct with only the valid field to return
+		validResp := struct {
+			Valid bool `json:"valid"`
+		}{
+			Valid: true,
+		}
+		w.WriteHeader(200)
+		dat, err := json.Marshal(validResp)
+		if err != nil {
+			log.Printf("Error marshalling JSON: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(dat)
+	}
 }
