@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync/atomic"
 )
 
@@ -81,11 +82,6 @@ func (cfg *apiConfig) validate(w http.ResponseWriter, r *http.Request) {
 		Body string `json:"body"`
 	}
 
-	type returnVals struct {
-		Error string `json:"error"`
-		Valid bool   `json:"valid"`
-	}
-
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
 	err := decoder.Decode(&params)
@@ -113,13 +109,13 @@ func (cfg *apiConfig) validate(w http.ResponseWriter, r *http.Request) {
 		w.Write(dat)
 	} else {
 		// Creating a struct with only the valid field to return
-		validResp := struct {
-			Valid bool `json:"valid"`
+		cleanedResp := struct {
+			CleanedBody string `json:"cleaned_body"`
 		}{
-			Valid: true,
+			CleanedBody: profaneReplacer(params.Body),
 		}
 		w.WriteHeader(200)
-		dat, err := json.Marshal(validResp)
+		dat, err := json.Marshal(cleanedResp)
 		if err != nil {
 			log.Printf("Error marshalling JSON: %s", err)
 			w.WriteHeader(500)
@@ -128,4 +124,24 @@ func (cfg *apiConfig) validate(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(dat)
 	}
+}
+
+func profaneReplacer(s string) string {
+	bannedWords := []string{
+		"kerfuffle",
+		"sharbert",
+		"fornax",
+	}
+
+	words := strings.Split(s, " ")
+
+	for i, word := range words {
+		for _, profaneWord := range bannedWords {
+			if strings.ToLower(word) == profaneWord {
+				words[i] = "****"
+			}
+		}
+	}
+	joinedstr := strings.Join(words, " ")
+	return joinedstr
 }
