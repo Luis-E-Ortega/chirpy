@@ -9,7 +9,9 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"github.com/luis-e-ortega/chirpy/internal/database"
@@ -17,6 +19,14 @@ import (
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+	db             *database.Queries
+}
+
+type User struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email"`
 }
 
 func main() {
@@ -40,7 +50,9 @@ func main() {
 	}
 
 	// Initialize instance of apiConfig struct
-	apiCfg := apiConfig{}
+	apiCfg := apiConfig{
+		db: dbQueries,
+	}
 
 	// Handle requests to /healthz with the readiness check, only allowing GET requests (others return 405)
 	mux.HandleFunc("GET /api/healthz", handleHealthz)
@@ -52,6 +64,8 @@ func main() {
 	mux.HandleFunc("POST /admin/reset", apiCfg.reset)
 	// Handle chirp validation
 	mux.HandleFunc("POST /api/validate_chirp", apiCfg.validate)
+	// Handle users to be able to create them
+	mux.HandleFunc("POST /api/users", apiCfg.createUser)
 
 	// Starts server "listening" to accept and handle requests
 	fmt.Println("Server starting on port 8080...")
@@ -162,4 +176,8 @@ func profaneReplacer(s string) string {
 	}
 	joinedstr := strings.Join(words, " ")
 	return joinedstr
+}
+
+func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
+
 }
