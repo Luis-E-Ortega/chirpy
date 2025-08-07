@@ -1,12 +1,18 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
+
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
+	"github.com/luis-e-ortega/chirpy/internal/database"
 )
 
 type apiConfig struct {
@@ -14,6 +20,18 @@ type apiConfig struct {
 }
 
 func main() {
+	godotenv.Load() // Load env file into environment variables
+	dbURL := os.Getenv("DB_URL")
+	//Open sql database connection
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		fmt.Printf("Error opening database connection: %s", err)
+	}
+	// Use sqlc generated databse package to create new *databse.Queries and store it in apiConfig struct
+	// so that it can be accessed
+	dbQueries := database.New(db)
+	_ = dbQueries
+
 	// Initialize multiplexer
 	mux := http.NewServeMux()
 	server := &http.Server{
@@ -38,7 +56,7 @@ func main() {
 	// Starts server "listening" to accept and handle requests
 	fmt.Println("Server starting on port 8080...")
 
-	err := server.ListenAndServe()
+	err = server.ListenAndServe()
 	if err != nil {
 		println("error starting listen and serve: ", err.Error())
 		return
