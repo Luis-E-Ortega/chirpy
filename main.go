@@ -22,6 +22,14 @@ type apiConfig struct {
 	db             *database.Queries
 }
 
+type parameters struct {
+	Body string `json:"body"`
+}
+
+type CreateUserRequest struct {
+	Email string `json:"email"`
+}
+
 type User struct {
 	ID        uuid.UUID `json:"id"`
 	CreatedAt time.Time `json:"created_at"`
@@ -110,10 +118,6 @@ func (cfg *apiConfig) reset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) validate(w http.ResponseWriter, r *http.Request) {
-	type parameters struct {
-		Body string `json:"body"`
-	}
-
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
 	err := decoder.Decode(&params)
@@ -179,5 +183,32 @@ func profaneReplacer(s string) string {
 }
 
 func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
+	decoder := json.NewDecoder(r.Body)
+	userReq := CreateUserRequest{}
+	err := decoder.Decode(&userReq)
+	if err != nil {
+		fmt.Printf("Error decoding user : %s", err)
+	}
+
+	user, err := cfg.db.CreateUser(r.Context(), userReq.Email)
+	if err != nil {
+		fmt.Printf("Error creating user: %s", err)
+	}
+
+	userData := User{
+		ID:        user.ID,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+		Email:     user.Email,
+	}
+
+	dat, err := json.Marshal(userData)
+	if err != nil {
+		fmt.Printf("Error marshalling JSON: %s", err)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	w.Write(dat)
 
 }
