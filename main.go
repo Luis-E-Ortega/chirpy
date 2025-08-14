@@ -20,6 +20,7 @@ import (
 type apiConfig struct {
 	fileserverHits atomic.Int32
 	db             *database.Queries
+	platform       string
 }
 
 type parameters struct {
@@ -57,9 +58,11 @@ func main() {
 		Handler: mux,
 	}
 
+	platform := os.Getenv("PLATFORM")
 	// Initialize instance of apiConfig struct
 	apiCfg := apiConfig{
-		db: dbQueries,
+		db:       dbQueries,
+		platform: platform,
 	}
 
 	// Handle requests to /healthz with the readiness check, only allowing GET requests (others return 405)
@@ -114,7 +117,15 @@ func (cfg *apiConfig) writeHits(w http.ResponseWriter, r *http.Request) {
 
 // Resets hits count to 0
 func (cfg *apiConfig) reset(w http.ResponseWriter, r *http.Request) {
+	if cfg.platform != "dev" {
+		w.WriteHeader(403)
+		return
+	}
 	cfg.fileserverHits.Swap(0)
+	err := cfg.db.DeleteUsers(r.Context())
+	if err != nil {
+		fmt.Printf("Error deleting users: %s", err)
+	}
 }
 
 func (cfg *apiConfig) validate(w http.ResponseWriter, r *http.Request) {
@@ -189,12 +200,13 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fmt.Printf("Error decoding user : %s", err)
 	}
-
+	// Comments for debugging
+	fmt.Printf("Decoded email: '%s'\n", userReq.Email)
 	user, err := cfg.db.CreateUser(r.Context(), userReq.Email)
 	if err != nil {
 		fmt.Printf("Error creating user: %s", err)
 	}
-
+	fmt.Printf("Database user: %+v\n", user)
 	userData := User{
 		ID:        user.ID,
 		CreatedAt: user.CreatedAt,
