@@ -38,6 +38,19 @@ type User struct {
 	Email     string    `json:"email"`
 }
 
+type Chirp struct {
+	Body   string `json:"body"`
+	UserId string `json:"user_id"`
+}
+
+type ChirpResponse struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body      string    `json:"body"`
+	UserID    string    `json:"user_id"`
+}
+
 func main() {
 	godotenv.Load() // Load env file into environment variables
 	dbURL := os.Getenv("DB_URL")
@@ -73,10 +86,10 @@ func main() {
 	mux.HandleFunc("GET /admin/metrics/", apiCfg.writeHits)
 	// Handle reset from /reset path, only allowing POST requests
 	mux.HandleFunc("POST /admin/reset", apiCfg.reset)
-	// Handle chirp validation
-	mux.HandleFunc("POST /api/validate_chirp", apiCfg.validate)
 	// Handle users to be able to create them
 	mux.HandleFunc("POST /api/users", apiCfg.createUser)
+	// Handle chirps endpoint to allow users to post chirps to api
+	mux.HandleFunc("POST /api/chirps", apiCfg.postChirp)
 
 	// Starts server "listening" to accept and handle requests
 	fmt.Println("Server starting on port 8080...")
@@ -128,6 +141,7 @@ func (cfg *apiConfig) reset(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+/*
 func (cfg *apiConfig) validate(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
@@ -171,7 +185,7 @@ func (cfg *apiConfig) validate(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(dat)
 	}
-}
+}*/
 
 func profaneReplacer(s string) string {
 	bannedWords := []string{
@@ -200,13 +214,12 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fmt.Printf("Error decoding user : %s", err)
 	}
-	// Comments for debugging
-	fmt.Printf("Decoded email: '%s'\n", userReq.Email)
+
 	user, err := cfg.db.CreateUser(r.Context(), userReq.Email)
 	if err != nil {
 		fmt.Printf("Error creating user: %s", err)
 	}
-	fmt.Printf("Database user: %+v\n", user)
+
 	userData := User{
 		ID:        user.ID,
 		CreatedAt: user.CreatedAt,
@@ -223,4 +236,63 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(201)
 	w.Write(dat)
 
+}
+
+func (cfg *apiConfig) postChirp(w http.ResponseWriter, r *http.Request) {
+	decoder := json.NewDecoder(r.Body)
+	chirp := Chirp{}
+	err := decoder.Decode(&chirp)
+	if err != nil {
+		log.Printf("Error decoding parameters : %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	if len(chirp.Body) > 140 {
+		// Creating a struct with only error field to return
+		errorResp := struct {
+			Error string `json:"error"`
+		}{
+			Error: "Chirp is too long",
+		}
+		w.WriteHeader(400)
+		dat, err := json.Marshal(errorResp)
+		if err != nil {
+			log.Printf("Error marshalling JSON: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(dat)
+	} else {
+		parsedId, err := uuid.Parse(chirp.UserId)
+		if err != nil {
+			fmt.Printf("Error parsing uuid: %s", err)
+			w.WriteHeader(400)
+			return
+		}
+
+		params := database.CreateChirpParams{
+			Body:   profaneReplacer(chirp.Body),
+			UserID: uuid.NullUUID{UUID: parsedId, Valid: true},
+		}
+		chirp, err := cfg.db.CreateChirp(r.Context(), params)
+		if err != nil {
+			fmt.Printf("Error creating chirp: %v, params: %+v", err, params)
+			w.WriteHeader(500)
+			return
+		}
+
+		resp := ChirpResponse{
+			ID:        chirp.ID,
+			CreatedAt: chirp.CreatedAt,
+			UpdatedAt: chirp.UpdatedAt,
+			Body:      chirp.Body,
+			UserID:    chirp.UserID.UUID.String(),
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(resp)
+	}
 }
