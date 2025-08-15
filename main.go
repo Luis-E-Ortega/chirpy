@@ -90,6 +90,8 @@ func main() {
 	mux.HandleFunc("POST /api/users", apiCfg.createUser)
 	// Handle chirps endpoint to allow users to post chirps to api
 	mux.HandleFunc("POST /api/chirps", apiCfg.postChirp)
+	// Serve chirps (return all) from /api/chirps path
+	mux.HandleFunc("GET /api/chirps", apiCfg.getChirps)
 
 	// Starts server "listening" to accept and handle requests
 	fmt.Println("Server starting on port 8080...")
@@ -295,4 +297,31 @@ func (cfg *apiConfig) postChirp(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(resp)
 	}
+}
+
+func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
+	chirps, err := cfg.db.GetAllChirps(r.Context())
+	if err != nil {
+		fmt.Printf("Error retrieving chirps from database: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	formattedResp := []ChirpResponse{}
+
+	for _, chirp := range chirps {
+		resp := ChirpResponse{
+			ID:        chirp.ID,
+			CreatedAt: chirp.CreatedAt,
+			UpdatedAt: chirp.UpdatedAt,
+			Body:      chirp.Body,
+			UserID:    chirp.UserID.UUID.String(),
+		}
+		formattedResp = append(formattedResp, resp)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	json.NewEncoder(w).Encode(formattedResp)
+
 }
