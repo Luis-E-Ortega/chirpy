@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	"github.com/luis-e-ortega/chirpy/internal/auth"
 	"github.com/luis-e-ortega/chirpy/internal/database"
 )
 
@@ -28,7 +29,8 @@ type parameters struct {
 }
 
 type CreateUserRequest struct {
-	Email string `json:"email"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
 type User struct {
@@ -216,12 +218,24 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 	userReq := CreateUserRequest{}
 	err := decoder.Decode(&userReq)
 	if err != nil {
-		fmt.Printf("Error decoding user : %s", err)
+		cfg.respondWithError(w, r, http.StatusBadRequest, "Something went wrong with decoding the request.", err)
+		return
 	}
 
-	user, err := cfg.db.CreateUser(r.Context(), userReq.Email)
+	hashedPwd, err := auth.HashPassword(userReq.Password)
 	if err != nil {
-		fmt.Printf("Error creating user: %s", err)
+		cfg.respondWithError(w, r, http.StatusInternalServerError, "Something went wrong with hashing the password.", err)
+		return
+	}
+
+	userParams := database.CreateUserParams{
+		Email:          userReq.Email,
+		HashedPassword: hashedPwd,
+	}
+	user, err := cfg.db.CreateUser(r.Context(), userParams)
+	if err != nil {
+		cfg.respondWithError(w, r, http.StatusInternalServerError, "Something went wrong with creating the user.", err)
+		return
 	}
 
 	userData := User{
@@ -233,7 +247,8 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 
 	dat, err := json.Marshal(userData)
 	if err != nil {
-		fmt.Printf("Error marshalling JSON: %s", err)
+		cfg.respondWithError(w, r, http.StatusInternalServerError, "Something went wrong with marshalling the request.", err)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
