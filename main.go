@@ -92,6 +92,8 @@ func main() {
 	mux.HandleFunc("POST /api/chirps", apiCfg.postChirp)
 	// Serve chirps (return all) from /api/chirps path
 	mux.HandleFunc("GET /api/chirps", apiCfg.getChirps)
+	// Serve chirp (returning one) from api/chirp/{chirpID} path
+	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirp)
 
 	// Starts server "listening" to accept and handle requests
 	fmt.Println("Server starting on port 8080...")
@@ -324,4 +326,33 @@ func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(200)
 	json.NewEncoder(w).Encode(formattedResp)
 
+}
+
+func (cfg *apiConfig) getChirp(w http.ResponseWriter, r *http.Request) {
+	chirpID := r.PathValue("chirpID")
+	parsedID, err := uuid.Parse(chirpID)
+	if err != nil {
+		fmt.Printf("Error parsing string into UUID: %s", err)
+		w.WriteHeader(404)
+		return
+	}
+
+	chirp, err := cfg.db.GetSingleChirp(r.Context(), parsedID)
+	if err != nil {
+		fmt.Printf("Error retrieving chirp: %s", err)
+		w.WriteHeader(404)
+		return
+	}
+
+	chirpResp := ChirpResponse{
+		ID:        chirp.ID,
+		CreatedAt: chirp.CreatedAt,
+		UpdatedAt: chirp.UpdatedAt,
+		Body:      chirp.Body,
+		UserID:    parsedID.String(),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	json.NewEncoder(w).Encode(chirpResp)
 }
