@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -94,8 +93,10 @@ func main() {
 	mux.HandleFunc("POST /api/chirps", apiCfg.postChirp)
 	// Serve chirps (return all) from /api/chirps path
 	mux.HandleFunc("GET /api/chirps", apiCfg.getChirps)
-	// Serve chirp (returning one) from api/chirp/{chirpID} path
+	// Serve chirp (returning one) from /api/chirp/{chirpID} path
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirp)
+	// Serve login from /api/login path
+	mux.HandleFunc("POST /api/login", apiCfg.login)
 
 	// Starts server "listening" to accept and handle requests
 	fmt.Println("Server starting on port 8080...")
@@ -234,7 +235,7 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 	}
 	user, err := cfg.db.CreateUser(r.Context(), userParams)
 	if err != nil {
-		cfg.respondWithError(w, r, http.StatusInternalServerError, "Something went wrong with creating the user.", err)
+		cfg.respondWithError(w, r, http.StatusBadRequest, "Something went wrong with creating the user.", err)
 		return
 	}
 
@@ -254,7 +255,6 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(201)
 	w.Write(dat)
-
 }
 
 func (cfg *apiConfig) postChirp(w http.ResponseWriter, r *http.Request) {
@@ -262,32 +262,17 @@ func (cfg *apiConfig) postChirp(w http.ResponseWriter, r *http.Request) {
 	chirp := Chirp{}
 	err := decoder.Decode(&chirp)
 	if err != nil {
-		log.Printf("Error decoding parameters : %s", err)
-		w.WriteHeader(500)
+		cfg.respondWithError(w, r, http.StatusBadRequest, "Something went wrong with decoding the request.", err)
 		return
 	}
 
 	if len(chirp.Body) > 140 {
-		// Creating a struct with only error field to return
-		errorResp := struct {
-			Error string `json:"error"`
-		}{
-			Error: "Chirp is too long",
-		}
-		w.WriteHeader(400)
-		dat, err := json.Marshal(errorResp)
-		if err != nil {
-			log.Printf("Error marshalling JSON: %s", err)
-			w.WriteHeader(500)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(dat)
+		cfg.respondWithError(w, r, http.StatusBadRequest, "Chirp is too long.", nil)
+		return
 	} else {
 		parsedId, err := uuid.Parse(chirp.UserId)
 		if err != nil {
-			fmt.Printf("Error parsing uuid: %s", err)
-			w.WriteHeader(400)
+			cfg.respondWithError(w, r, http.StatusBadRequest, "Error parsing uuid.", err)
 			return
 		}
 
@@ -297,8 +282,7 @@ func (cfg *apiConfig) postChirp(w http.ResponseWriter, r *http.Request) {
 		}
 		chirp, err := cfg.db.CreateChirp(r.Context(), params)
 		if err != nil {
-			fmt.Printf("Error creating chirp: %v, params: %+v", err, params)
-			w.WriteHeader(500)
+			cfg.respondWithError(w, r, http.StatusInternalServerError, "Error creating chirp.", err)
 			return
 		}
 
@@ -319,8 +303,7 @@ func (cfg *apiConfig) postChirp(w http.ResponseWriter, r *http.Request) {
 func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
 	chirps, err := cfg.db.GetAllChirps(r.Context())
 	if err != nil {
-		fmt.Printf("Error retrieving chirps from database: %s", err)
-		w.WriteHeader(500)
+		cfg.respondWithError(w, r, 201, "Error retrieving chirps from database.", err)
 		return
 	}
 
@@ -347,15 +330,13 @@ func (cfg *apiConfig) getChirp(w http.ResponseWriter, r *http.Request) {
 	chirpID := r.PathValue("chirpID")
 	parsedID, err := uuid.Parse(chirpID)
 	if err != nil {
-		fmt.Printf("Error parsing string into UUID: %s", err)
-		w.WriteHeader(404)
+		cfg.respondWithError(w, r, 404, "Error parsing string into UUID.", err)
 		return
 	}
 
 	chirp, err := cfg.db.GetSingleChirp(r.Context(), parsedID)
 	if err != nil {
-		fmt.Printf("Error retrieving chirp: %s", err)
-		w.WriteHeader(404)
+		cfg.respondWithError(w, r, 404, "Error retrieving chirp.", err)
 		return
 	}
 
@@ -370,4 +351,35 @@ func (cfg *apiConfig) getChirp(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
 	json.NewEncoder(w).Encode(chirpResp)
+}
+
+func (cfg *apiConfig) login(w http.ResponseWriter, r *http.Request) {
+	decoder := json.NewDecoder(r.Body)
+	userReq := CreateUserRequest{}
+	err := decoder.Decode(&userReq)
+	if err != nil {
+		cfg.respondWithError(w, r, http.StatusBadRequest, "Something went wrong with decoding the request.", err)
+		return
+	}
+	userEmail := userReq.Email
+	user, err := cfg.db.GetUser(r.Context(), userEmail)
+	if err != nil {
+		cfg.respondWithError(w, r, 401, "Incorrect email or password", err)
+		return
+	}
+	err = auth.CheckPasswordHash(userReq.Password, user.HashedPassword)
+	if err != nil {
+		cfg.respondWithError(w, r, 401, "Incorrect email or password", err)
+		return
+	}
+
+	userResponse := User{
+		ID:        user.ID,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+		Email:     user.Email,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	json.NewEncoder(w).Encode(userResponse)
 }
