@@ -21,10 +21,7 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	db             *database.Queries
 	platform       string
-}
-
-type parameters struct {
-	Body string `json:"body"`
+	secret         string
 }
 
 type CreateUserRequest struct {
@@ -55,6 +52,7 @@ type ChirpResponse struct {
 func main() {
 	godotenv.Load() // Load env file into environment variables
 	dbURL := os.Getenv("DB_URL")
+	secretStr := os.Getenv("SECRET")
 	//Open sql database connection
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
@@ -77,6 +75,7 @@ func main() {
 	apiCfg := apiConfig{
 		db:       dbQueries,
 		platform: platform,
+		secret:   secretStr,
 	}
 
 	// Handle requests to /healthz with the readiness check, only allowing GET requests (others return 405)
@@ -258,6 +257,16 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) postChirp(w http.ResponseWriter, r *http.Request) {
+	token, tokenErr := auth.GetBearerToken(r.Header)
+	if tokenErr != nil {
+		cfg.respondWithError(w, r, http.StatusBadRequest, "Something went wrong with retrieving token", tokenErr)
+		return
+	}
+	userID, validationErr := auth.ValidateJWT(token, cfg.secret)
+	if validationErr != nil {
+		cfg.respondWithError(w, r, 401, "Unauthorized", validationErr)
+		return
+	}
 	decoder := json.NewDecoder(r.Body)
 	chirp := Chirp{}
 	err := decoder.Decode(&chirp)
@@ -270,15 +279,10 @@ func (cfg *apiConfig) postChirp(w http.ResponseWriter, r *http.Request) {
 		cfg.respondWithError(w, r, http.StatusBadRequest, "Chirp is too long.", nil)
 		return
 	} else {
-		parsedId, err := uuid.Parse(chirp.UserId)
-		if err != nil {
-			cfg.respondWithError(w, r, http.StatusBadRequest, "Error parsing uuid.", err)
-			return
-		}
 
 		params := database.CreateChirpParams{
 			Body:   profaneReplacer(chirp.Body),
-			UserID: uuid.NullUUID{UUID: parsedId, Valid: true},
+			UserID: uuid.NullUUID{UUID: userID, Valid: true},
 		}
 		chirp, err := cfg.db.CreateChirp(r.Context(), params)
 		if err != nil {
@@ -354,8 +358,20 @@ func (cfg *apiConfig) getChirp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) login(w http.ResponseWriter, r *http.Request) {
+	// Creating login-specific structs
+	type loginRequest struct {
+		Email            string `json:"email"`
+		Password         string `json:"password"`
+		ExpiresInSeconds int    `json:"expires_in_seconds"`
+	}
+
+	type loginResponse struct {
+		User
+		Token string `json:"token"`
+	}
+
 	decoder := json.NewDecoder(r.Body)
-	userReq := CreateUserRequest{}
+	userReq := loginRequest{}
 	err := decoder.Decode(&userReq)
 	if err != nil {
 		cfg.respondWithError(w, r, http.StatusBadRequest, "Something went wrong with decoding the request.", err)
@@ -372,14 +388,27 @@ func (cfg *apiConfig) login(w http.ResponseWriter, r *http.Request) {
 		cfg.respondWithError(w, r, 401, "Incorrect email or password", err)
 		return
 	}
-
+	expires := userReq.ExpiresInSeconds
+	if (expires > 3600) || (expires == 0) {
+		expires = 3600
+	}
+	formattedExpires := time.Duration(expires) * time.Second
+	token, err := auth.MakeJWT(user.ID, cfg.secret, formattedExpires)
+	if err != nil {
+		cfg.respondWithError(w, r, http.StatusBadRequest, "Something went wrong with authorizing the token.", err)
+		return
+	}
 	userResponse := User{
 		ID:        user.ID,
 		CreatedAt: user.CreatedAt,
 		UpdatedAt: user.UpdatedAt,
 		Email:     user.Email,
 	}
+	response := loginResponse{
+		User:  userResponse,
+		Token: token,
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
-	json.NewEncoder(w).Encode(userResponse)
+	json.NewEncoder(w).Encode(response)
 }
