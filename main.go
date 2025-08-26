@@ -307,7 +307,7 @@ func (cfg *apiConfig) postChirp(w http.ResponseWriter, r *http.Request) {
 func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
 	chirps, err := cfg.db.GetAllChirps(r.Context())
 	if err != nil {
-		cfg.respondWithError(w, r, 201, "Error retrieving chirps from database.", err)
+		cfg.respondWithError(w, r, http.StatusInternalServerError, "Error retrieving chirps from database.", err)
 		return
 	}
 
