@@ -96,6 +96,10 @@ func main() {
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirp)
 	// Serve login from /api/login path
 	mux.HandleFunc("POST /api/login", apiCfg.login)
+	// Serve refresh from /api/refresh path
+	mux.HandleFunc("POST /api/refresh", apiCfg.refresh)
+	// Serve revoke from /api/revoke path
+	mux.HandleFunc("POST /api/revoke", apiCfg.revoke)
 
 	// Starts server "listening" to accept and handle requests
 	fmt.Println("Server starting on port 8080...")
@@ -360,14 +364,14 @@ func (cfg *apiConfig) getChirp(w http.ResponseWriter, r *http.Request) {
 func (cfg *apiConfig) login(w http.ResponseWriter, r *http.Request) {
 	// Creating login-specific structs
 	type loginRequest struct {
-		Email            string `json:"email"`
-		Password         string `json:"password"`
-		ExpiresInSeconds int    `json:"expires_in_seconds"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 
 	type loginResponse struct {
 		User
-		Token string `json:"token"`
+		Token        string `json:"token"`
+		RefreshToken string `json:"refresh_token"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -388,27 +392,85 @@ func (cfg *apiConfig) login(w http.ResponseWriter, r *http.Request) {
 		cfg.respondWithError(w, r, 401, "Incorrect email or password", err)
 		return
 	}
-	expires := userReq.ExpiresInSeconds
-	if (expires > 3600) || (expires == 0) {
-		expires = 3600
-	}
-	formattedExpires := time.Duration(expires) * time.Second
+
+	formattedExpires := time.Duration(3600) * time.Second
 	token, err := auth.MakeJWT(user.ID, cfg.secret, formattedExpires)
 	if err != nil {
 		cfg.respondWithError(w, r, http.StatusBadRequest, "Something went wrong with authorizing the token.", err)
 		return
 	}
+
 	userResponse := User{
 		ID:        user.ID,
 		CreatedAt: user.CreatedAt,
 		UpdatedAt: user.UpdatedAt,
 		Email:     user.Email,
 	}
+
+	rawRefreshToken, TokenErr := auth.MakeRefreshToken()
+	if TokenErr != nil {
+		cfg.respondWithError(w, r, http.StatusInternalServerError, "Something went wrong with making the refresh token.", TokenErr)
+		return
+	}
+	expireTime := time.Now().Add(time.Duration(time.Hour * 1440))
+	params := database.CreateRefreshTokenParams{
+		Token: rawRefreshToken,
+		ExpiresAt: sql.NullTime{
+			Time:  expireTime,
+			Valid: true,
+		},
+		UserID: uuid.NullUUID{
+			UUID:  user.ID,
+			Valid: true,
+		},
+	}
+	refreshToken, err := cfg.db.CreateRefreshToken(r.Context(), params)
+	if err != nil {
+		cfg.respondWithError(w, r, http.StatusInternalServerError, "Something went wrong with creating the refresh token.", err)
+		return
+	}
 	response := loginResponse{
-		User:  userResponse,
-		Token: token,
+		User:         userResponse,
+		Token:        token,
+		RefreshToken: refreshToken.Token,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
 	json.NewEncoder(w).Encode(response)
+}
+
+func (cfg *apiConfig) refresh(w http.ResponseWriter, r *http.Request) {
+	type loginResponse struct {
+		Token string `json:"token"`
+	}
+
+	bearerToken, tokenErr := auth.GetBearerToken(r.Header)
+	if tokenErr != nil {
+		cfg.respondWithError(w, r, http.StatusBadRequest, "Something went wrong with retrieving token", tokenErr)
+		return
+	}
+	refreshToken, err := cfg.db.GetRefreshToken(r.Context(), bearerToken)
+	if err != nil {
+		cfg.respondWithError(w, r, 401, "Mismatched or non-existing token", err)
+		return
+	}
+
+	formattedExpires := time.Duration(3600) * time.Second
+	token, err := auth.MakeJWT(refreshToken.UserID.UUID, cfg.secret, formattedExpires)
+	if err != nil {
+		cfg.respondWithError(w, r, http.StatusBadRequest, "Something went wrong with authorizing the token.", err)
+		return
+	}
+
+	response := loginResponse{
+		Token: token,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	json.NewEncoder(w).Encode(response)
+}
+
+func (cfg *apiConfig) revoke(w http.ResponseWriter, r *http.Request) {
+
 }
