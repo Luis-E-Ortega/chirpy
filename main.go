@@ -472,5 +472,21 @@ func (cfg *apiConfig) refresh(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) revoke(w http.ResponseWriter, r *http.Request) {
+	bearerToken, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		cfg.respondWithError(w, r, http.StatusBadRequest, "Something went wrong with retrieving token", err)
+		return
+	}
+	refreshToken, err := cfg.db.GetRefreshToken(r.Context(), bearerToken)
+	if err != nil {
+		cfg.respondWithError(w, r, 401, "Mismatched or non-existing token", err)
+		return
+	}
 
+	revokeErr := cfg.db.RevokeRefreshToken(r.Context(), refreshToken.Token)
+	if revokeErr != nil {
+		cfg.respondWithError(w, r, http.StatusBadRequest, "Something went wrong with revoking the refresh token", revokeErr)
+		return
+	}
+	w.WriteHeader(204)
 }
