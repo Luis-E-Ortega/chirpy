@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -82,23 +83,25 @@ func main() {
 	mux.HandleFunc("GET /api/healthz", handleHealthz)
 	// Serve static files from /app/ path
 	mux.Handle("/app/", http.StripPrefix("/app", apiCfg.middlewareMetricsInc(http.FileServer(http.Dir(".")))))
-	// Serve metrics from /metrics path, only allowing GET requests
+	// Endpoint to view metrics
 	mux.HandleFunc("GET /admin/metrics/", apiCfg.writeHits)
-	// Handle reset from /reset path, only allowing POST requests
+	// Endpoint to reset metrics
 	mux.HandleFunc("POST /admin/reset", apiCfg.reset)
-	// Handle users to be able to create them
+	// Endpoint to allow users to create an account
 	mux.HandleFunc("POST /api/users", apiCfg.createUser)
-	// Handle chirps endpoint to allow users to post chirps to api
+	// Endpoint to update user password
+	mux.HandleFunc("PUT /api/users", apiCfg.updateUser)
+	// Endpoint to allow users to post chirps to api
 	mux.HandleFunc("POST /api/chirps", apiCfg.postChirp)
-	// Serve chirps (return all) from /api/chirps path
+	// Endpoint to retrieve all chirps from a given user
 	mux.HandleFunc("GET /api/chirps", apiCfg.getChirps)
-	// Serve chirp (returning one) from /api/chirp/{chirpID} path
+	// Endpoint to retrieve a single chirp
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirp)
-	// Serve login from /api/login path
+	// Endpoint to allow user login
 	mux.HandleFunc("POST /api/login", apiCfg.login)
-	// Serve refresh from /api/refresh path
+	// Endpoint to generate refresh tokens
 	mux.HandleFunc("POST /api/refresh", apiCfg.refresh)
-	// Serve revoke from /api/revoke path
+	// Endpoint to revoke refresh tokens
 	mux.HandleFunc("POST /api/revoke", apiCfg.revoke)
 
 	// Starts server "listening" to accept and handle requests
@@ -258,6 +261,70 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(201)
 	w.Write(dat)
+}
+
+func (cfg *apiConfig) updateUser(w http.ResponseWriter, r *http.Request) {
+	token, tokenErr := auth.GetBearerToken(r.Header)
+	if tokenErr != nil {
+		cfg.respondWithError(w, r, http.StatusUnauthorized, "Something went wrong with retrieving token", tokenErr)
+		return
+	}
+	userID, validationErr := auth.ValidateJWT(token, cfg.secret)
+	if validationErr != nil {
+		cfg.respondWithError(w, r, http.StatusUnauthorized, "Unauthorized", validationErr)
+		return
+	}
+
+	type UserUpdate struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	userReq := UserUpdate{}
+	err := decoder.Decode(&userReq)
+	if err != nil {
+		cfg.respondWithError(w, r, http.StatusBadRequest, "Something went wrong with decoding the request", err)
+		return
+	}
+	if userReq.Email == "" || userReq.Password == "" {
+		err = errors.New("empty fields for email or password")
+		cfg.respondWithError(w, r, http.StatusBadRequest, "Email and password required", err)
+		return
+	}
+	hashedPwd, err := auth.HashPassword(userReq.Password)
+	if err != nil {
+		cfg.respondWithError(w, r, http.StatusInternalServerError, "Something went wrong with hashing password", err)
+		return
+	}
+
+	ctx := r.Context()
+	params := database.UpdateUserByIDParams{
+		Email:          userReq.Email,
+		HashedPassword: hashedPwd,
+		ID:             userID,
+	}
+
+	type UserResponse struct {
+		ID        uuid.UUID `json:"id"`
+		CreatedAt time.Time `json:"created_at"`
+		Email     string    `json:"email"`
+	}
+	userRow, err := cfg.db.UpdateUserByID(ctx, params)
+	if err != nil {
+		cfg.respondWithError(w, r, http.StatusBadRequest, "Something went wrong while updating user info", err)
+		return
+	}
+	resp := UserResponse{
+		ID:        userRow.ID,
+		CreatedAt: userRow.CreatedAt,
+		Email:     userRow.Email,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(resp)
+
 }
 
 func (cfg *apiConfig) postChirp(w http.ResponseWriter, r *http.Request) {
