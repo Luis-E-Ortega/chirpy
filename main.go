@@ -97,6 +97,8 @@ func main() {
 	mux.HandleFunc("GET /api/chirps", apiCfg.getChirps)
 	// Endpoint to retrieve a single chirp
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirp)
+	// Endpoint to delete a single chirp
+	mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.deleteChirp)
 	// Endpoint to allow user login
 	mux.HandleFunc("POST /api/login", apiCfg.login)
 	// Endpoint to generate refresh tokens
@@ -556,4 +558,50 @@ func (cfg *apiConfig) revoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(204)
+}
+
+func (cfg *apiConfig) deleteChirp(w http.ResponseWriter, r *http.Request) {
+	chirpID := r.PathValue("chirpID")
+
+	bearerToken, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		cfg.respondWithError(w, r, http.StatusUnauthorized, "Something went wrong with retrieving token", err)
+		return
+	}
+
+	verifiedID, err := auth.ValidateJWT(bearerToken, cfg.secret)
+	if err != nil {
+		cfg.respondWithError(w, r, http.StatusUnauthorized, "Something went wrong with validating token", err)
+		return
+	}
+
+	parsedID, err := uuid.Parse(chirpID)
+	if err != nil {
+		cfg.respondWithError(w, r, http.StatusNotFound, "Error parsing string into UUID.", err)
+		return
+	}
+	chirp, err := cfg.db.GetSingleChirp(r.Context(), parsedID)
+	if err != nil {
+		cfg.respondWithError(w, r, http.StatusNotFound, "Error retrieving chirp.", err)
+		return
+	}
+	if !chirp.UserID.Valid {
+		cfg.respondWithError(w, r, http.StatusForbidden, "forbidden", errors.New("chirp has no author"))
+		return
+	}
+
+	if chirp.UserID.UUID != verifiedID {
+		cfg.respondWithError(w, r, http.StatusForbidden, "forbidden", errors.New("not the author"))
+		return
+	}
+
+	// All checks passed, delete the chirp
+
+	if err := cfg.db.DeleteChirpByID(r.Context(), parsedID); err != nil {
+		cfg.respondWithError(w, r, http.StatusInternalServerError, "failed to delete chirp", err)
+		return
+	}
+
+	// Header for successful delete
+	w.WriteHeader(http.StatusNoContent)
 }
