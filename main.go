@@ -565,13 +565,13 @@ func (cfg *apiConfig) deleteChirp(w http.ResponseWriter, r *http.Request) {
 
 	bearerToken, err := auth.GetBearerToken(r.Header)
 	if err != nil {
-		cfg.respondWithError(w, r, http.StatusUnauthorized, "Something went wrong with retrieving token", err)
+		cfg.respondWithError(w, r, http.StatusUnauthorized, "unauthorized", err)
 		return
 	}
 
 	verifiedID, err := auth.ValidateJWT(bearerToken, cfg.secret)
 	if err != nil {
-		cfg.respondWithError(w, r, http.StatusUnauthorized, "Something went wrong with validating token", err)
+		cfg.respondWithError(w, r, http.StatusUnauthorized, "unauthorized", err)
 		return
 	}
 
