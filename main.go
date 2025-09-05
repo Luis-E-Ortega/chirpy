@@ -28,10 +28,11 @@ type CreateUserRequest struct {
 }
 
 type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
+	ID          uuid.UUID `json:"id"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	Email       string    `json:"email"`
+	IsChirpyRed bool      `json:"is_chirpy_red"`
 }
 
 type Chirp struct {
@@ -102,6 +103,8 @@ func main() {
 	mux.HandleFunc("POST /api/refresh", apiCfg.refresh)
 	// Endpoint to revoke refresh tokens
 	mux.HandleFunc("POST /api/revoke", apiCfg.revoke)
+	// Endpoint to manage polka webhooks
+	mux.HandleFunc("POST /api/polka/webhooks", apiCfg.polkaWebhooks)
 
 	// Starts server "listening" to accept and handle requests
 	fmt.Println("Server starting on port 8080...")

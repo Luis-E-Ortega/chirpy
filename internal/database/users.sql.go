@@ -74,7 +74,7 @@ const updateUserByID = `-- name: UpdateUserByID :one
 UPDATE users
 SET email = $1, hashed_password = $2
 WHERE id = $3
-RETURNING id, created_at, email
+RETURNING id, created_at, email, is_chirpy_red
 `
 
 type UpdateUserByIDParams struct {
@@ -84,25 +84,34 @@ type UpdateUserByIDParams struct {
 }
 
 type UpdateUserByIDRow struct {
-	ID        uuid.UUID
-	CreatedAt time.Time
-	Email     string
+	ID          uuid.UUID
+	CreatedAt   time.Time
+	Email       string
+	IsChirpyRed bool
 }
 
 func (q *Queries) UpdateUserByID(ctx context.Context, arg UpdateUserByIDParams) (UpdateUserByIDRow, error) {
 	row := q.db.QueryRowContext(ctx, updateUserByID, arg.Email, arg.HashedPassword, arg.ID)
 	var i UpdateUserByIDRow
-	err := row.Scan(&i.ID, &i.CreatedAt, &i.Email)
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.Email,
+		&i.IsChirpyRed,
+	)
 	return i, err
 }
 
-const upgradeUserToRed = `-- name: UpgradeUserToRed :exec
+const upgradeUserToRed = `-- name: UpgradeUserToRed :execrows
 UPDATE users
 SET is_chirpy_red = true
 WHERE id = $1
 `
 
-func (q *Queries) UpgradeUserToRed(ctx context.Context, id uuid.UUID) error {
-	_, err := q.db.ExecContext(ctx, upgradeUserToRed, id)
-	return err
+func (q *Queries) UpgradeUserToRed(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.ExecContext(ctx, upgradeUserToRed, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

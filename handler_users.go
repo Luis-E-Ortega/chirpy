@@ -38,10 +38,11 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userData := User{
-		ID:        user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email:     user.Email,
+		ID:          user.ID,
+		CreatedAt:   user.CreatedAt,
+		UpdatedAt:   user.UpdatedAt,
+		Email:       user.Email,
+		IsChirpyRed: user.IsChirpyRed,
 	}
 
 	dat, err := json.Marshal(userData)
@@ -95,10 +96,11 @@ func (cfg *apiConfig) login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userResponse := User{
-		ID:        user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email:     user.Email,
+		ID:          user.ID,
+		CreatedAt:   user.CreatedAt,
+		UpdatedAt:   user.UpdatedAt,
+		Email:       user.Email,
+		IsChirpyRed: user.IsChirpyRed,
 	}
 
 	rawRefreshToken, TokenErr := auth.MakeRefreshToken()
@@ -176,9 +178,10 @@ func (cfg *apiConfig) updateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type UserResponse struct {
-		ID        uuid.UUID `json:"id"`
-		CreatedAt time.Time `json:"created_at"`
-		Email     string    `json:"email"`
+		ID          uuid.UUID `json:"id"`
+		CreatedAt   time.Time `json:"created_at"`
+		Email       string    `json:"email"`
+		IsChirpyRed bool      `json:"is_chirpy_red"`
 	}
 	userRow, err := cfg.db.UpdateUserByID(ctx, params)
 	if err != nil {
@@ -186,9 +189,10 @@ func (cfg *apiConfig) updateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := UserResponse{
-		ID:        userRow.ID,
-		CreatedAt: userRow.CreatedAt,
-		Email:     userRow.Email,
+		ID:          userRow.ID,
+		CreatedAt:   userRow.CreatedAt,
+		Email:       userRow.Email,
+		IsChirpyRed: userRow.IsChirpyRed,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
