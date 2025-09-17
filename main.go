@@ -20,6 +20,7 @@ type apiConfig struct {
 	db             *database.Queries
 	platform       string
 	secret         string
+	polkaKey       string
 }
 
 type CreateUserRequest struct {
@@ -51,7 +52,8 @@ type ChirpResponse struct {
 func main() {
 	godotenv.Load() // Load env file into environment variables
 	dbURL := os.Getenv("DB_URL")
-	secretStr := os.Getenv("SECRET")
+	secret := os.Getenv("SECRET")
+	polkaKey := os.Getenv("POLKA_KEY")
 	//Open sql database connection
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
@@ -74,7 +76,8 @@ func main() {
 	apiCfg := apiConfig{
 		db:       dbQueries,
 		platform: platform,
-		secret:   secretStr,
+		secret:   secret,
+		polkaKey: polkaKey,
 	}
 
 	// Handle requests to /healthz with the readiness check, only allowing GET requests (others return 405)

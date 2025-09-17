@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/luis-e-ortega/chirpy/internal/auth"
 )
 
 type WebhooksEvent struct {
@@ -21,6 +23,19 @@ func (cfg *apiConfig) polkaWebhooks(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(&evt)
 	if err != nil {
 		cfg.respondWithError(w, r, http.StatusInternalServerError, "error decoding request", err)
+		return
+	}
+
+	actualAPIKey := cfg.polkaKey
+	requestAPIKey, err := auth.GetAPIKey(r.Header)
+	if err != nil {
+		cfg.respondWithError(w, r, 401, "error getting api key", err)
+		return
+	}
+
+	if requestAPIKey != actualAPIKey {
+		keyErr := errors.New("invalid api key")
+		cfg.respondWithError(w, r, http.StatusBadRequest, "unauthorized request", keyErr)
 		return
 	}
 
