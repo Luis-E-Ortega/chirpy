@@ -59,7 +59,24 @@ func (cfg *apiConfig) postChirp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
-	chirps, err := cfg.db.GetAllChirps(r.Context())
+	s := r.URL.Query().Get("author_id")
+
+	var authorNullUUID uuid.NullUUID
+
+	if s == "" {
+		// If s is empty, create a NullUUID that represents SQL NULL
+		authorNullUUID = uuid.NullUUID{Valid: false}
+	} else {
+		parsedID, err := uuid.Parse(s)
+		if err != nil {
+			cfg.respondWithError(w, r, 404, "error parsing string into uuid", err)
+			return
+		}
+		authorNullUUID = uuid.NullUUID{UUID: parsedID, Valid: true}
+
+	}
+
+	chirps, err := cfg.db.GetAllChirps(r.Context(), authorNullUUID)
 	if err != nil {
 		cfg.respondWithError(w, r, http.StatusInternalServerError, "Error retrieving chirps from database.", err)
 		return
