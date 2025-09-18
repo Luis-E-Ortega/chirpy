@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/luis-e-ortega/chirpy/internal/auth"
@@ -93,6 +95,18 @@ func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
 			UserID:    chirp.UserID.UUID.String(),
 		}
 		formattedResp = append(formattedResp, resp)
+	}
+
+	// Incase a sort parameter is present in the query, use it to sort chirps (sorting is already defaulted to asc)
+	sortParam := strings.ToLower(r.URL.Query().Get("sort"))
+	if sortParam == "desc" {
+		sort.Slice(formattedResp, func(i, j int) bool {
+			return formattedResp[i].CreatedAt.After(formattedResp[j].CreatedAt)
+		})
+	} else {
+		sort.Slice(formattedResp, func(i, j int) bool {
+			return formattedResp[i].CreatedAt.Before(formattedResp[j].CreatedAt)
+		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
